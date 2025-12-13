@@ -1,0 +1,14 @@
+torch
+torchvision
+diffusers
+transformers
+accelerate
+safetensors
+numpy
+pandas
+matplotlib
+seaborn
+tqdm
+pillow
+streamlit
+scipy
