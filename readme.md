@@ -3,6 +3,7 @@
 **Stable Diffusion with CLIP Conditioning**
 
 Author: Neha Dharanu  
+Teammate: Sri Lakshmi Swetha Jalluri
 Date: December 2025
 
 **🔗 GitHub Repository:** [https://github.com/nehadharanu/text-to-image-stable-diffusion](https://github.com/nehadharanu/text-to-image-stable-diffusion)
