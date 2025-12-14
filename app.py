@@ -3,7 +3,8 @@ from datetime import datetime
 
 import streamlit as st
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import StableDiffusionPipeline
+from PIL import Image
 
 
 # ----------------------------
@@ -208,8 +209,7 @@ def load_pipeline():
     model_source = MODEL_DIR if local_ok else "CompVis/stable-diffusion-v1-4"
 
     try:
-        # Use DiffusionPipeline.from_pretrained instead
-        pipe = DiffusionPipeline.from_pretrained(
+        pipe = StableDiffusionPipeline.from_pretrained(
             model_source,
             torch_dtype=dtype,
             safety_checker=None,
@@ -233,14 +233,13 @@ def hero_section(model_source: str, device: str):
         <div class="panel">
           <div class="hero-title">Text-to-Image Generation</div>
           <div class="hero-subtitle">
-            Transform natural language into high-quality images using Stable Diffusion v1.4 with CLIP text encoding.
-            Configured for optimal quality (Euler scheduler, CFG=7.5).
+            Transform natural language prompts into high-quality 512×512 images using Stable Diffusion with CLIP-based text conditioning
           </div>
           <div class="pill-row">
-            <span class="pill">{'✓ Fine-Tuned Model' if is_local else '✓ Base Model (SD v1.4)'}</span>
-            <span class="pill">✓ CLIP Text Encoder</span>
-            <span class="pill">✓ Euler Scheduler</span>
+            <span class="pill">Model: {"Fine-tuned (local)" if is_local else "SD v1.4 (base)"}</span>
             <span class="pill">Device: {device.upper()}</span>
+            <span class="pill">CLIP ViT-B/32</span>
+            <span class="pill">Latent Diffusion</span>
           </div>
         </div>
         """,
@@ -249,29 +248,15 @@ def hero_section(model_source: str, device: str):
 
 
 def links_row():
-    st.markdown(
-        f"""
-        <div class="grid">
-          <div class="card">
-            <h4>GitHub Repository</h4>
-            <p>Complete source code, notebook, and documentation</p>
-          </div>
-          <div class="card">
-            <h4>Jupyter Notebook</h4>
-            <p>Model training, optimization, and evaluation</p>
-          </div>
-          <div class="card">
-            <h4>Technical Report</h4>
-            <p>Architecture, metrics, challenges, and ethics</p>
-          </div>
-          <div class="card">
-            <h4>Demo App</h4>
-            <p>Interactive text-to-image generation interface</p>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.link_button("GitHub Repository", GITHUB_REPO_URL, use_container_width=True)
+    with c2:
+        st.link_button("Jupyter Notebook", NOTEBOOK_URL, use_container_width=True)
+    with c3:
+        st.link_button("Technical Report", "#", use_container_width=True, disabled=not os.path.exists(DOC_PDF_PATH))
+    with c4:
+        st.link_button("Stress App", "https://www.google.com", use_container_width=True)
 
 
 def key_features_4_cards():
@@ -280,20 +265,20 @@ def key_features_4_cards():
         """
         <div class="grid">
           <div class="card">
-            <h4>Multimodal Integration</h4>
-            <p>Combines CLIP text encoding with Stable Diffusion image synthesis for semantic understanding.</p>
+            <h4>🎨 CLIP Conditioning</h4>
+            <p>Semantic prompt alignment using CLIP text embeddings with cross-attention injection during diffusion.</p>
           </div>
           <div class="card">
-            <h4>Optimized Configuration</h4>
-            <p>Tested 9 configurations. Best: Euler scheduler + CFG=10.0 (FID=153.86).</p>
+            <h4>⚡ Latent Diffusion</h4>
+            <p>Efficient generation in compressed 64×64×4 latent space, decoded to 512×512 RGB via VAE.</p>
           </div>
           <div class="card">
-            <h4>Quality Metrics</h4>
-            <p>Professional evaluation using FID and Inception Score. 8% improvement over baseline.</p>
+            <h4>🔧 Configurable Pipeline</h4>
+            <p>Adjustable CFG scale (7.5), 50 inference steps, Euler scheduler for stable high-quality outputs.</p>
           </div>
           <div class="card">
-            <h4>Production Ready</h4>
-            <p>Memory optimized (6.8 GB VRAM), fast generation (8.7s on GPU), responsive UI.</p>
+            <h4>📊 Evaluation Metrics</h4>
+            <p>Quantitative analysis using FID and Inception Score across multiple configurations.</p>
           </div>
         </div>
         """,
@@ -306,7 +291,7 @@ def _set_prompt(text: str):
 
 
 def prompt_gallery():
-    st.markdown("#### Example Prompts")
+    st.markdown("### Example Prompts")
     st.caption("Click a button to load a prompt. You can edit it before generating.")
 
     examples = [
@@ -351,7 +336,7 @@ def demo_section(pipe, device: str):
         st.text_area(
             "Prompt input",
             key="prompt_input",
-            placeholder="Example: A majestic lion in the savanna, highly detailed, cinematic lighting",
+            placeholder="Example: A charming cup of coffee on a wooden table, soft morning light, realistic photography",
             height=110,
             label_visibility="collapsed",
         )
@@ -370,39 +355,36 @@ def demo_section(pipe, device: str):
     if generate:
         prompt = st.session_state.get("prompt_input", "").strip()
         if not prompt:
-            status_slot.markdown(
-                '<div class="alert-orange">Please enter a prompt before generating.</div>',
-                unsafe_allow_html=True,
-            )
+            status_slot.warning("⚠️ Please enter a prompt before generating.")
             st.stop()
 
         try:
-            # Spinner placed near prompt area (above examples)
+            # Show helpful progress message
             with status_slot.container():
-                st.markdown(
-                    '<div class="panel" style="text-align:center; font-weight:900;">Generating image…</div>',
-                    unsafe_allow_html=True,
+                st.info(f"🎨 Generating image on {device.upper()}... **Expected time:** {'8-15 seconds' if device == 'cuda' else '45-90 seconds'}")
+                if device == "cpu":
+                    st.caption("💡 This is running on CPU (slower). For faster generation, run on GPU or Google Colab.")
+            
+            start = datetime.now()
+            
+            # Generate image
+            with torch.inference_mode():
+                out = pipe(
+                    prompt=prompt,
+                    guidance_scale=7.5,
+                    num_inference_steps=50,
+                    height=DEFAULT_HEIGHT,
+                    width=DEFAULT_WIDTH,
                 )
-                with st.spinner("Please wait..."):
-                    start = datetime.now()
-                    with torch.inference_mode():
-                        out = pipe(
-                            prompt=prompt,
-                            guidance_scale=7.5,
-                            num_inference_steps=50,
-                            height=DEFAULT_HEIGHT,
-                            width=DEFAULT_WIDTH,
-                        )
-                    img = out.images[0]
-                    elapsed = (datetime.now() - start).total_seconds()
+            img = out.images[0]
+            elapsed = (datetime.now() - start).total_seconds()
 
             status_slot.empty()
-
-            st.success(f"Generated in {elapsed:.2f} seconds.")
+            st.success(f"✅ Image generated successfully in {elapsed:.1f} seconds on {device.upper()}!")
 
             out_left, out_right = st.columns([2, 1])
             with out_left:
-                st.image(img, caption=prompt, width=650)
+                st.image(img, caption=prompt, use_column_width=True)
 
             with out_right:
                 st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -419,7 +401,8 @@ def demo_section(pipe, device: str):
                         mime="image/png",
                         use_container_width=True,
                     )
-                st.caption("Default: CFG=7.5 • Steps=50 • 512×512")
+                st.caption(f"**Settings:** CFG=7.5 • Steps=50 • 512×512 • {device.upper()}")
+                st.caption(f"**Time:** {elapsed:.1f}s")
                 st.markdown("</div>", unsafe_allow_html=True)
 
                 try:
@@ -429,10 +412,8 @@ def demo_section(pipe, device: str):
 
         except Exception as e:
             status_slot.empty()
-            st.markdown(
-                f'<div class="alert-orange">Generation failed: {e}</div>',
-                unsafe_allow_html=True,
-            )
+            st.error(f"❌ Generation failed: {str(e)}")
+            st.info("💡 **Troubleshooting:**\n- First run may download model (~4GB, 5-10 min)\n- Check terminal for download progress\n- On CPU, generation takes 45-90 seconds\n- Try a shorter prompt if it times out")
 
 
 def how_it_works():
@@ -494,6 +475,7 @@ with st.sidebar:
     st.link_button("Notebook", NOTEBOOK_URL, use_container_width=True)
 
     if os.path.exists(DOC_PDF_PATH):
+        st.markdown("---")
         with open(DOC_PDF_PATH, "rb") as f:
             st.download_button(
                 "Download PDF",
@@ -515,7 +497,8 @@ links_row()
 st.write("")
 
 if err:
-    st.error(f"Model load error: {err}")
+    st.error(f"❌ Model load error: {err}")
+    st.info("💡 **Possible solutions:**\n- Install dependencies: `pip install diffusers transformers torch`\n- Check if models/ folder exists\n- On first run, model will download from Hugging Face")
     st.stop()
 
 tabs = st.tabs(["Demo", "Key Features", "How It Works", "Documentation"])
