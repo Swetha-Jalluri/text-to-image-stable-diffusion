@@ -134,7 +134,7 @@ pip install -r requirements.txt
 ```
 
 ### 3. Download the Model
-
+🔗 [model](https://drive.google.com/drive/folders/1pYlPWib9pQIl416Ji0KpCTRCjsB4MycA?usp=drive_link)
 Download the fine-tuned model from the Google Drive link above and place it in `models/best_evaluated_model/`
 
 ### 4. Run the Application
